@@ -112,10 +112,34 @@ int direct_console_input(void)
 }
 #endif
 
+#if defined(PC88VA)
+/* The PC-88VA has no PC BIOS tick counter: 0040:006C is part of the VA
+   system common area. Measure the timeout with the DOS clock instead. */
+#define DOS_DAY_CENTISECONDS 8640000UL
+
+static unsigned long dos_centiseconds(void)
+{
+  union REGS r;
+  r.h.ah = 0x2c;		/* get system time */
+  intdos(&r,&r);
+  return (((unsigned long)r.h.ch * 60UL + r.h.cl) * 60UL + r.h.dh) * 100UL + r.h.dl;
+}
+
+static unsigned long dos_elapsed(unsigned long start)
+{
+  unsigned long now = dos_centiseconds();
+  return now >= start ? now - start : now + DOS_DAY_CENTISECONDS - start;
+}
+#endif
+
 unsigned getch_with_timeout(int timeout_seconds)
 {
   int key;
+#if defined(PC88VA)
+  unsigned long start = dos_centiseconds();
+#else
   unsigned long start = BIOS_TIME();
+#endif
 
 
   for (;;)
@@ -123,8 +147,13 @@ unsigned getch_with_timeout(int timeout_seconds)
       key = direct_console_input();
       if (key == -1)
 	{
+#if defined(PC88VA)
+	  if (timeout_seconds && dos_elapsed(start) > (unsigned long)timeout_seconds*100)
+	    return 0xffff;
+#else
 	  if (timeout_seconds && (BIOS_TIME() - start) > (unsigned long)timeout_seconds*18)
 	    return 0xffff;
+#endif
 
 			
 	  idle();
